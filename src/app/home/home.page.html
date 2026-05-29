@@ -1,0 +1,470 @@
+<ion-content *ngIf="!currentUser" fullscreen class="login-content">
+  <section class="login-panel">
+    <div class="brand-mark">CE</div>
+    <h1>Controle de Estoque</h1>
+    <p>Gestao de produtos, clientes, vendas, caixa e relatorios.</p>
+
+    <form (ngSubmit)="login()" class="form-stack">
+      <ion-input
+        label="Usuario"
+        label-placement="stacked"
+        fill="outline"
+        name="username"
+        [(ngModel)]="loginForm.username"
+        required
+      ></ion-input>
+      <ion-input
+        label="Senha"
+        label-placement="stacked"
+        fill="outline"
+        name="password"
+        type="password"
+        [(ngModel)]="loginForm.password"
+        required
+      ></ion-input>
+      <ion-button type="submit" expand="block">Entrar</ion-button>
+      <ion-note>Acesso inicial: <strong>admin</strong> / <strong>admin123</strong></ion-note>
+      <ion-text color="danger" *ngIf="loginError">{{ loginError }}</ion-text>
+    </form>
+  </section>
+</ion-content>
+
+<ion-split-pane *ngIf="currentUser" contentId="main-content">
+  <ion-menu contentId="main-content" type="overlay">
+    <ion-header>
+      <ion-toolbar color="primary">
+        <ion-title>Estoque Pro</ion-title>
+      </ion-toolbar>
+    </ion-header>
+    <ion-content>
+      <div class="user-box">
+        <strong>{{ currentUser.name }}</strong>
+        <span>{{ currentUser.role }}</span>
+      </div>
+
+      <ion-list lines="none">
+        <ion-item
+          button
+          *ngFor="let view of views"
+          [class.active-menu]="activeView === view.key"
+          (click)="setView(view.key)"
+        >
+          <ion-icon slot="start" [name]="view.icon"></ion-icon>
+          <ion-label>{{ view.label }}</ion-label>
+        </ion-item>
+      </ion-list>
+    </ion-content>
+    <ion-footer>
+      <ion-toolbar>
+        <ion-button fill="clear" color="danger" expand="block" (click)="logout()">
+          <ion-icon slot="start" name="exit-outline"></ion-icon>
+          Sair
+        </ion-button>
+      </ion-toolbar>
+    </ion-footer>
+  </ion-menu>
+
+  <div class="ion-page" id="main-content">
+    <ion-header>
+      <ion-toolbar>
+        <ion-buttons slot="start">
+          <ion-menu-button></ion-menu-button>
+        </ion-buttons>
+        <ion-title>{{ title }}</ion-title>
+        <ion-buttons slot="end">
+          <ion-button color="danger" (click)="restoreDemo()">
+            <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
+          </ion-button>
+        </ion-buttons>
+      </ion-toolbar>
+    </ion-header>
+
+    <ion-content class="app-content">
+      <section class="metrics-grid">
+        <ion-card>
+          <ion-card-header>
+            <ion-card-subtitle>Vendas no mes</ion-card-subtitle>
+            <ion-card-title>{{ metrics.monthSales }}</ion-card-title>
+          </ion-card-header>
+        </ion-card>
+        <ion-card>
+          <ion-card-header>
+            <ion-card-subtitle>Valor vendido no mes</ion-card-subtitle>
+            <ion-card-title>{{ metrics.monthSold | currency: 'BRL' }}</ion-card-title>
+          </ion-card-header>
+        </ion-card>
+        <ion-card>
+          <ion-card-header>
+            <ion-card-subtitle>Itens em estoque</ion-card-subtitle>
+            <ion-card-title>{{ metrics.stockQuantity }}</ion-card-title>
+          </ion-card-header>
+        </ion-card>
+        <ion-card>
+          <ion-card-header>
+            <ion-card-subtitle>Saldo em caixa</ion-card-subtitle>
+            <ion-card-title>{{ metrics.cashBalance | currency: 'BRL' }}</ion-card-title>
+          </ion-card-header>
+        </ion-card>
+        <ion-card>
+          <ion-card-header>
+            <ion-card-subtitle>Compras canceladas</ion-card-subtitle>
+            <ion-card-title>{{ metrics.canceledSales }}</ion-card-title>
+          </ion-card-header>
+        </ion-card>
+      </section>
+
+      <ng-container [ngSwitch]="activeView">
+        <section *ngSwitchCase="'dashboard'" class="page-grid">
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Ultimas vendas</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list *ngIf="recentSales.length; else emptySales">
+                <ion-item *ngFor="let sale of recentSales; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ findClient(sale.clientId)?.name || 'Cliente removido' }}</h2>
+                    <p>{{ sale.items.length }} tipo(s) de produto - {{ formatDate(sale.createdAt) }}</p>
+                    <p *ngIf="isSaleCanceled(sale)">Cancelada: {{ sale.cancellationReason }}</p>
+                  </ion-label>
+                  <ion-badge [color]="isSaleCanceled(sale) ? 'danger' : 'success'">
+                    {{ isSaleCanceled(sale) ? 'Cancelada' : 'Ativa' }}
+                  </ion-badge>
+                  <ion-note slot="end">{{ saleTotal(sale) | currency: 'BRL' }}</ion-note>
+                </ion-item>
+              </ion-list>
+              <ng-template #emptySales><p class="empty-text">Nenhuma venda registrada.</p></ng-template>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Alerta de estoque</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list *ngIf="lowStockProducts.length; else noLowStock">
+                <ion-item *ngFor="let product of lowStockProducts; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ product.name }}</h2>
+                    <p>{{ product.sku }} - minimo {{ product.minStock }}</p>
+                  </ion-label>
+                  <ion-badge color="warning" slot="end">{{ product.stock }}</ion-badge>
+                </ion-item>
+              </ion-list>
+              <ng-template #noLowStock><p class="empty-text">Nenhum produto em alerta.</p></ng-template>
+            </ion-card-content>
+          </ion-card>
+        </section>
+
+        <section *ngSwitchCase="'users'" class="work-grid">
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>{{ editingUserId ? 'Editar usuario' : 'Cadastrar usuario' }}</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <form (ngSubmit)="saveUser()" class="form-stack">
+                <ion-input label="Nome" label-placement="stacked" fill="outline" name="userName" [(ngModel)]="userForm.name" required></ion-input>
+                <ion-input label="Usuario" label-placement="stacked" fill="outline" name="userLogin" [(ngModel)]="userForm.username" required></ion-input>
+                <ion-input label="Senha" label-placement="stacked" fill="outline" name="userPassword" type="password" [(ngModel)]="userForm.password" required></ion-input>
+                <ion-select label="Perfil" label-placement="stacked" fill="outline" name="userRole" [(ngModel)]="userForm.role">
+                  <ion-select-option *ngFor="let role of roles" [value]="role">{{ role }}</ion-select-option>
+                </ion-select>
+                <ion-toggle name="userActive" [(ngModel)]="userForm.active">Usuario ativo</ion-toggle>
+                <ion-button type="submit" expand="block">
+                  <ion-icon slot="start" name="save-outline"></ion-icon>
+                  Salvar usuario
+                </ion-button>
+              </form>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Usuarios cadastrados</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list>
+                <ion-item *ngFor="let user of data.users; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ user.name }}</h2>
+                    <p>{{ user.username }} - {{ user.role }}</p>
+                  </ion-label>
+                  <ion-badge [color]="user.active ? 'success' : 'danger'">{{ user.active ? 'Ativo' : 'Inativo' }}</ion-badge>
+                  <ion-button fill="clear" slot="end" (click)="editUser(user)">Editar</ion-button>
+                  <ion-button fill="clear" color="danger" slot="end" (click)="deleteUser(user)">
+                    <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+                  </ion-button>
+                </ion-item>
+              </ion-list>
+            </ion-card-content>
+          </ion-card>
+        </section>
+
+        <section *ngSwitchCase="'products'" class="work-grid">
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>{{ editingProductId ? 'Editar produto' : 'Cadastrar produto' }}</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <form (ngSubmit)="saveProduct()" class="form-stack">
+                <ion-input label="Produto" label-placement="stacked" fill="outline" name="productName" [(ngModel)]="productForm.name" required></ion-input>
+                <ion-input label="SKU" label-placement="stacked" fill="outline" name="productSku" [(ngModel)]="productForm.sku" required></ion-input>
+                <ion-input label="Preco" label-placement="stacked" fill="outline" name="productPrice" type="number" [(ngModel)]="productForm.price" required></ion-input>
+                <ion-input label="Quantidade" label-placement="stacked" fill="outline" name="productStock" type="number" [(ngModel)]="productForm.stock" required></ion-input>
+                <ion-input label="Estoque minimo" label-placement="stacked" fill="outline" name="productMinStock" type="number" [(ngModel)]="productForm.minStock" required></ion-input>
+                <ion-button type="submit" expand="block">
+                  <ion-icon slot="start" name="save-outline"></ion-icon>
+                  Salvar produto
+                </ion-button>
+              </form>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Estoque</ion-card-title>
+              <ion-searchbar placeholder="Buscar produto ou SKU" [(ngModel)]="productSearch"></ion-searchbar>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list>
+                <ion-item *ngFor="let product of filteredProducts; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ product.name }}</h2>
+                    <p>{{ product.sku }} - {{ product.price | currency: 'BRL' }}</p>
+                  </ion-label>
+                  <ion-badge [color]="product.stock <= product.minStock ? 'warning' : 'success'">{{ product.stock }} un.</ion-badge>
+                  <ion-button fill="clear" slot="end" (click)="editProduct(product)">Editar</ion-button>
+                  <ion-button fill="clear" color="danger" slot="end" (click)="deleteProduct(product)">
+                    <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+                  </ion-button>
+                </ion-item>
+              </ion-list>
+            </ion-card-content>
+          </ion-card>
+        </section>
+
+        <section *ngSwitchCase="'clients'" class="work-grid">
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>{{ editingClientId ? 'Editar cliente' : 'Cadastrar cliente' }}</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <form (ngSubmit)="saveClient()" class="form-stack">
+                <ion-input label="Nome" label-placement="stacked" fill="outline" name="clientName" [(ngModel)]="clientForm.name" required></ion-input>
+                <ion-input label="CPF/CNPJ" label-placement="stacked" fill="outline" name="clientDocument" [(ngModel)]="clientForm.document" required></ion-input>
+                <ion-input label="Telefone" label-placement="stacked" fill="outline" name="clientPhone" [(ngModel)]="clientForm.phone" required></ion-input>
+                <ion-input label="E-mail" label-placement="stacked" fill="outline" name="clientEmail" type="email" [(ngModel)]="clientForm.email" required></ion-input>
+                <ion-button type="submit" expand="block">
+                  <ion-icon slot="start" name="save-outline"></ion-icon>
+                  Salvar cliente
+                </ion-button>
+              </form>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Clientes cadastrados</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list>
+                <ion-item *ngFor="let client of data.clients; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ client.name }}</h2>
+                    <p>{{ client.document }} - {{ client.phone }}</p>
+                    <p>{{ client.email }}</p>
+                  </ion-label>
+                  <ion-button fill="clear" slot="end" (click)="editClient(client)">Editar</ion-button>
+                  <ion-button fill="clear" color="danger" slot="end" (click)="deleteClient(client)">
+                    <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+                  </ion-button>
+                </ion-item>
+              </ion-list>
+            </ion-card-content>
+          </ion-card>
+        </section>
+
+        <section *ngSwitchCase="'sales'" class="work-grid">
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Nova venda</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <form (ngSubmit)="finishSale()" class="form-stack">
+                <ion-select label="Cliente" label-placement="stacked" fill="outline" name="saleClient" [(ngModel)]="saleForm.clientId" required>
+                  <ion-select-option *ngFor="let client of data.clients" [value]="client.id">{{ client.name }}</ion-select-option>
+                </ion-select>
+
+                <div class="sale-item" *ngFor="let item of saleForm.items; let i = index">
+                  <ion-select label="Produto" label-placement="stacked" fill="outline" [name]="'saleProduct' + i" [(ngModel)]="item.productId" required>
+                    <ion-select-option *ngFor="let product of data.products" [value]="product.id">{{ product.name }} - {{ product.stock }} un.</ion-select-option>
+                  </ion-select>
+                  <ion-input label="Qtd." label-placement="stacked" fill="outline" type="number" [name]="'saleQuantity' + i" [(ngModel)]="item.quantity" required></ion-input>
+                  <ion-button fill="clear" color="danger" type="button" (click)="removeSaleItem(i)">
+                    <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+                  </ion-button>
+                </div>
+
+                <ion-button fill="outline" type="button" (click)="addSaleItem()">
+                  <ion-icon slot="start" name="add-circle-outline"></ion-icon>
+                  Adicionar produto
+                </ion-button>
+
+                <ion-select label="Forma de pagamento" label-placement="stacked" fill="outline" name="salePayment" [(ngModel)]="saleForm.paymentMethod">
+                  <ion-select-option *ngFor="let method of paymentMethods" [value]="method">{{ method }}</ion-select-option>
+                </ion-select>
+
+                <div class="summary-line">
+                  <span>Total da nota</span>
+                  <strong>{{ saleDraftTotal | currency: 'BRL' }}</strong>
+                </div>
+                <ion-button type="submit" expand="block">Finalizar venda</ion-button>
+              </form>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Pedidos e notas de compra</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list *ngIf="data.sales.length; else noOrders">
+                <ion-item *ngFor="let sale of recentSales; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ findClient(sale.clientId)?.name || 'Cliente removido' }}</h2>
+                    <p *ngFor="let item of sale.items">{{ item.name }} - {{ item.quantity }} un.</p>
+                    <p>{{ sale.paymentMethod }} - {{ formatDate(sale.createdAt) }}</p>
+                    <p *ngIf="isSaleCanceled(sale)">
+                      Cancelada em {{ formatDate(sale.canceledAt || sale.createdAt) }} por {{ sale.canceledBy }}.
+                      Justificativa: {{ sale.cancellationReason }}
+                    </p>
+                  </ion-label>
+                  <ion-badge [color]="isSaleCanceled(sale) ? 'danger' : 'success'">
+                    {{ isSaleCanceled(sale) ? 'Cancelada' : 'Ativa' }}
+                  </ion-badge>
+                  <ion-note slot="end">{{ saleTotal(sale) | currency: 'BRL' }}</ion-note>
+                  <ion-button
+                    *ngIf="!isSaleCanceled(sale)"
+                    fill="clear"
+                    color="danger"
+                    slot="end"
+                    (click)="cancelSale(sale)"
+                  >
+                    Cancelar
+                  </ion-button>
+                </ion-item>
+              </ion-list>
+              <ng-template #noOrders><p class="empty-text">Nenhuma venda registrada.</p></ng-template>
+            </ion-card-content>
+          </ion-card>
+        </section>
+
+        <section *ngSwitchCase="'cashier'" class="work-grid">
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Lancar entrada manual</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <form (ngSubmit)="savePayment()" class="form-stack">
+                <ion-input label="Descricao" label-placement="stacked" fill="outline" name="paymentDescription" [(ngModel)]="paymentForm.description" required></ion-input>
+                <ion-input label="Valor" label-placement="stacked" fill="outline" name="paymentAmount" type="number" [(ngModel)]="paymentForm.amount" required></ion-input>
+                <ion-select label="Forma de pagamento" label-placement="stacked" fill="outline" name="paymentMethod" [(ngModel)]="paymentForm.method">
+                  <ion-select-option *ngFor="let method of paymentMethods" [value]="method">{{ method }}</ion-select-option>
+                </ion-select>
+                <ion-button type="submit" expand="block">Registrar entrada</ion-button>
+              </form>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Entradas do caixa</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list *ngIf="sortedPayments.length; else noPayments">
+                <ion-item *ngFor="let payment of sortedPayments; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ payment.description }}</h2>
+                    <p>{{ payment.method }} - {{ formatDate(payment.createdAt) }}</p>
+                  </ion-label>
+                  <ion-note slot="end">{{ payment.amount | currency: 'BRL' }}</ion-note>
+                </ion-item>
+              </ion-list>
+              <ng-template #noPayments><p class="empty-text">Nenhum pagamento registrado.</p></ng-template>
+            </ion-card-content>
+          </ion-card>
+        </section>
+
+        <section *ngSwitchCase="'reports'" class="page-grid">
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Produtos mais vendidos</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <div class="bar-row" *ngFor="let item of productSalesReport">
+                <header><span>{{ item.name }}</span><strong>{{ item.quantity }} un.</strong></header>
+                <ion-progress-bar [value]="item.percent / 100"></ion-progress-bar>
+              </div>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Quantidade em estoque</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <div class="bar-row" *ngFor="let item of stockReport">
+                <header><span>{{ item.name }}</span><strong>{{ item.quantity }} un.</strong></header>
+                <ion-progress-bar color="warning" [value]="item.percent / 100"></ion-progress-bar>
+              </div>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Resumo financeiro</ion-card-title>
+            </ion-card-header>
+            <ion-card-content class="summary-card">
+              <div class="summary-line"><span>Numero de vendas no mes</span><strong>{{ metrics.monthSales }}</strong></div>
+              <div class="summary-line"><span>Valor total vendido no mes</span><strong>{{ metrics.monthSold | currency: 'BRL' }}</strong></div>
+              <div class="summary-line"><span>Valor total vendido geral</span><strong>{{ metrics.totalSold | currency: 'BRL' }}</strong></div>
+              <div class="summary-line"><span>Compras canceladas</span><strong>{{ metrics.canceledSales }}</strong></div>
+              <div class="summary-line"><span>Saldo total em caixa</span><strong>{{ metrics.cashBalance | currency: 'BRL' }}</strong></div>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Registro de cancelamentos</ion-card-title>
+            </ion-card-header>
+            <ion-card-content>
+              <ion-list *ngIf="canceledSalesReport.length; else noCanceledSales">
+                <ion-item *ngFor="let sale of canceledSalesReport; trackBy: trackById">
+                  <ion-label>
+                    <h2>{{ findClient(sale.clientId)?.name || 'Cliente removido' }}</h2>
+                    <p>Compra: {{ formatDate(sale.createdAt) }} - Cancelamento: {{ formatDate(sale.canceledAt || sale.createdAt) }}</p>
+                    <p>Responsavel: {{ sale.canceledBy }}</p>
+                    <p>Justificativa: {{ sale.cancellationReason }}</p>
+                  </ion-label>
+                  <ion-note slot="end">{{ saleTotal(sale) | currency: 'BRL' }}</ion-note>
+                </ion-item>
+              </ion-list>
+              <ng-template #noCanceledSales><p class="empty-text">Nenhuma compra cancelada.</p></ng-template>
+            </ion-card-content>
+          </ion-card>
+
+          <ion-card>
+            <ion-card-header>
+              <ion-card-title>Resumo operacional</ion-card-title>
+            </ion-card-header>
+            <ion-card-content class="summary-card">
+              <div class="summary-line"><span>Produtos cadastrados</span><strong>{{ metrics.products }}</strong></div>
+              <div class="summary-line"><span>Clientes cadastrados</span><strong>{{ metrics.clients }}</strong></div>
+              <div class="summary-line"><span>Quantidade total em estoque</span><strong>{{ metrics.stockQuantity }}</strong></div>
+            </ion-card-content>
+          </ion-card>
+        </section>
+      </ng-container>
+    </ion-content>
+  </div>
+</ion-split-pane>
